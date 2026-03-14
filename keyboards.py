@@ -13,7 +13,7 @@ def _url_btn(label, url): return mk_ikb(label, url=url)
 
 def language_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("🇸🇦 العربية", callback_data="set_lang_ar"),
+        InlineKeyboardButton("🇪🇬 العربية", callback_data="set_lang_ar"),
         InlineKeyboardButton("🇬🇧 English",  callback_data="set_lang_en"),
     ]])
 
