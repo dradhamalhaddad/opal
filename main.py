@@ -16,7 +16,8 @@ from handlers.workspace import (
     cmd_addchannel, cmd_removechannel, cmd_listchannels,
 )
 from handlers.owner import (
-    cmd_activate, cmd_deactivate, cmd_extend, cmd_workspaces, cmd_lookup
+    cmd_activate, cmd_deactivate, cmd_extend, cmd_workspaces, cmd_lookup,
+    build_owner_broadcast_handler,
 )
 from handlers.broadcast import (
     build_broadcast_handler, handle_approve, handle_reject
@@ -149,6 +150,9 @@ def main():
         .post_shutdown(post_shutdown)
         .build()
     )
+
+    # ── Owner broadcast ConversationHandler (group=-1, highest priority) ─────
+    app.add_handler(build_owner_broadcast_handler(), group=-1)
 
     # ── Broadcast ConversationHandler (highest priority) ──────────────────────
     app.add_handler(build_broadcast_handler(), group=0)

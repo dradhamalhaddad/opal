@@ -1,4 +1,4 @@
-from telegram.helpers import escape_markdown
+import html
 
 DIVIDER = "─────────────────"
 
@@ -6,7 +6,7 @@ DIVIDER = "─────────────────"
 def build_message(text: str, sender_name: str, sender_username: str | None, settings: dict) -> str:
     """
     Builds the final broadcast message with header/footer/sender info.
-    Returns a MarkdownV2-escaped string.
+    Returns an HTML-safe string intended for parse_mode=HTML.
     """
     header = settings.get("header_text") or ""
     footer = settings.get("footer_text") or ""
@@ -16,25 +16,25 @@ def build_message(text: str, sender_name: str, sender_username: str | None, sett
 
     # Header
     if header.strip():
-        parts.append(escape_markdown(header, version=2))
-        parts.append(escape_markdown(DIVIDER, version=2))
+        parts.append(html.escape(header))
+        parts.append(html.escape(DIVIDER))
 
     # Main message
-    parts.append(escape_markdown(text, version=2))
+    parts.append(html.escape(text))
 
     # Footer / sender info
     has_footer = bool(footer.strip())
     has_sender = show_sender
 
     if has_footer or has_sender:
-        parts.append(escape_markdown(DIVIDER, version=2))
+        parts.append(html.escape(DIVIDER))
         if has_footer:
-            parts.append(escape_markdown(footer, version=2))
+            parts.append(html.escape(footer))
         if has_sender:
             if sender_username:
                 sender_line = f"📢 via @{sender_username}"
             else:
                 sender_line = f"📢 via {sender_name}"
-            parts.append(escape_markdown(sender_line, version=2))
+            parts.append(html.escape(sender_line))
 
     return "\n".join(parts)

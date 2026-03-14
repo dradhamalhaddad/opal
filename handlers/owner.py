@@ -1,13 +1,19 @@
+import html
 import logging
 from datetime import datetime, timedelta
 
-from telegram import Update
-from telegram.ext import ContextTypes
+from telegram import Update, InlineKeyboardMarkup
+from telegram.ext import (
+    ContextTypes, ConversationHandler, CommandHandler,
+    CallbackQueryHandler, MessageHandler, filters,
+)
 
 from config import OWNER_ID, PLANS
+from bot_core import mk_ikb
 from database import (
     get_all_workspaces, get_workspace, activate_workspace, deactivate_workspace,
     extend_workspace, get_user_lang, lookup_user, lookup_workspace_by_channel,
+    get_active_workspace_owner_ids, get_active_pro_workspace_owner_ids,
     get_admins, get_channels, count_admins, count_channels
 )
 from translations import t
@@ -192,3 +198,102 @@ async def cmd_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
           owned=owned_lines,
           member=member_lines),
         parse_mode="HTML")
+
+
+# ── Owner broadcast ConversationHandler ──────────────────────────────────────
+
+_OWNER_BCAST_CHOOSING = "OWNER_BCAST_CHOOSING"
+_OWNER_BCAST_WAITING  = "OWNER_BCAST_WAITING"
+_CB_BCAST_ALL         = "owner_bcast_all"
+_CB_BCAST_PRO         = "owner_bcast_pro"
+_CB_BCAST_CANCEL      = "owner_bcast_cancel"
+
+
+async def cmd_ownerpanel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_owner(update.effective_user.id):
+        return
+    keyboard = InlineKeyboardMarkup([
+        [mk_ikb("📣 إذاعة للجميع",           callback_data=_CB_BCAST_ALL)],
+        [mk_ikb("⭐️ إذاعة للمشتركين Pro",    callback_data=_CB_BCAST_PRO)],
+        [mk_ikb("إلغاء",                      callback_data=_CB_BCAST_CANCEL)],
+    ])
+    await update.message.reply_text(
+        "🔧 <b>لوحة المالك</b>\n\nاختر نوع الإذاعة:",
+        parse_mode="HTML",
+        reply_markup=keyboard,
+    )
+    return _OWNER_BCAST_CHOOSING
+
+
+async def _handle_bcast_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if q.data == _CB_BCAST_CANCEL:
+        await q.edit_message_text("❌ تم الإلغاء.", parse_mode="HTML")
+        return ConversationHandler.END
+
+    context.user_data["owner_bcast_mode"] = q.data
+    label = "الجميع" if q.data == _CB_BCAST_ALL else "مشتركي Pro"
+    await q.edit_message_text(
+        f"📝 أرسل نص الإذاعة الآن.\n"
+        f"سيتم إرسالها إلى: <b>{html.escape(label)}</b>\n\n"
+        f"أرسل /cancel للإلغاء.",
+        parse_mode="HTML",
+    )
+    return _OWNER_BCAST_WAITING
+
+
+async def _handle_bcast_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_owner(update.effective_user.id):
+        return ConversationHandler.END
+
+    raw_text = update.message.text or ""
+    safe_text = html.escape(raw_text, quote=False)
+    mode = context.user_data.get("owner_bcast_mode", _CB_BCAST_ALL)
+
+    if mode == _CB_BCAST_PRO:
+        recipients = await get_active_pro_workspace_owner_ids()
+    else:
+        recipients = await get_active_workspace_owner_ids()
+
+    ok = fail = 0
+    for uid in recipients:
+        try:
+            await context.bot.send_message(uid, safe_text, parse_mode="HTML")
+            ok += 1
+        except Exception as e:
+            logger.warning("Owner broadcast: failed to send to %s: %s", uid, e)
+            fail += 1
+
+    total = ok + fail
+    await update.message.reply_text(
+        f"✅ <b>اكتملت الإذاعة</b>\n\n"
+        f"• الإجمالي: <b>{total}</b>\n"
+        f"• نجح: <b>{ok}</b>\n"
+        f"• فشل: <b>{fail}</b>",
+        parse_mode="HTML",
+    )
+    return ConversationHandler.END
+
+
+async def _handle_bcast_cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ تم إلغاء الإذاعة.", parse_mode="HTML")
+    return ConversationHandler.END
+
+
+def build_owner_broadcast_handler() -> ConversationHandler:
+    return ConversationHandler(
+        entry_points=[CommandHandler("ownerpanel", cmd_ownerpanel)],
+        states={
+            _OWNER_BCAST_CHOOSING: [
+                CallbackQueryHandler(_handle_bcast_choice,
+                                     pattern=f"^({_CB_BCAST_ALL}|{_CB_BCAST_PRO}|{_CB_BCAST_CANCEL})$"),
+            ],
+            _OWNER_BCAST_WAITING: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, _handle_bcast_text),
+                CommandHandler("cancel", _handle_bcast_cancel_cmd),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", _handle_bcast_cancel_cmd)],
+        per_message=False,
+    )

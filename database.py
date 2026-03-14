@@ -661,3 +661,25 @@ async def lookup_workspace_by_channel(channel_id: str) -> dict | None:
             "SELECT w.* FROM workspaces w JOIN channels c ON c.workspace_id=w.id WHERE c.channel_id=?",
             (str(channel_id),)) as c:
             return _row(await c.fetchone())
+
+
+# ─── Broadcast helpers ────────────────────────────────────────────────────────
+
+async def get_active_workspace_owner_ids() -> list[int]:
+    """Return sorted list of unique owner_ids for all active workspaces (basic + pro)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT DISTINCT owner_id FROM workspaces WHERE is_active=1 ORDER BY owner_id"
+        ) as c:
+            rows = await c.fetchall()
+    return [int(r[0]) for r in rows]
+
+
+async def get_active_pro_workspace_owner_ids() -> list[int]:
+    """Return sorted list of unique owner_ids for active workspaces with plan='pro'."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT DISTINCT owner_id FROM workspaces WHERE is_active=1 AND plan='pro' ORDER BY owner_id"
+        ) as c:
+            rows = await c.fetchall()
+    return [int(r[0]) for r in rows]
